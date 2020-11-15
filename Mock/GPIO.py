@@ -48,6 +48,16 @@ SPI = 41
 UNKNOWN = -1
 VERSION = '0.7.0'
 
+trans = {
+    BCM:'BCM', BOARD:'BOARD', BOTH:'BOTH', IN:'IN', OUT:'OUT',
+    PUD_DOWN:'PUD_DOWN', PUD_OFF:'PUD_OFF',PUD_UP:'PUD_UP'
+}
+
+state = {
+    HIGH:'HIGH', LOW:'LOW'
+}
+
+
 _mode = 0
 
 channel_config = {}
@@ -62,7 +72,27 @@ class Channel:
         self.direction = direction
         self.initial = initial
         self.pull_up_down = pull_up_down
+        self.value = initial
+        self.callback = None
+        self.event_detected = False
+        self.event_detection_enabled = False
 
+    def setValue(self, value): 
+        self.value = value
+        self.event_detected = self.event_detection_enabled
+        if self.event_detected and self.getCallback():
+            self.getCallback()()
+
+    def getValue(self): return self.value
+    def setCallback(self, callback): self.callback = callback
+    def getCallback(self): return self.callback
+
+    def enableEventDetection(self, callback):
+        self.setCallback(callback)
+        self.event_detection_enabled = True
+
+    def disableEventDetection(self):
+        self.event_detection_enabled = False
 
 #GPIO LIBRARY Functions
 def setmode(mode):
@@ -92,9 +122,9 @@ def setwarnings(flag):
     """
     Enable or disable warning messages
     """
-    logger.info("Set Warings as {}".format(flag))
+    logger.info("Set Warnings as {}".format(flag))
 
-def setup(channel, direction, initial=0,pull_up_down=PUD_OFF):
+def setup(channel, direction, initial=LOW,pull_up_down=PUD_OFF):
     """
     Set up a GPIO channel or list of channels with a direction and (optional) pull/up down control
     channel        - either board pin number or BCM number depending on which mode is set.
@@ -103,7 +133,7 @@ def setup(channel, direction, initial=0,pull_up_down=PUD_OFF):
     [initial]      - Initial value for an output channel
 
     """
-    logger.info("setup channel : {} as {} with intial :{} and pull_up_dowm {}".format(channel,direction,initial,pull_up_down))
+    logger.info("setup channel: {} as {} with intial: {} and pull_up_down {}".format(channel,trans[direction],state[initial],trans[pull_up_down]))
     global channel_config
     channel_config[channel] = Channel(channel, direction, initial, pull_up_down)
 
@@ -114,27 +144,39 @@ def output(channel, value):
     value   - 0/1 or False/True or LOW/HIGH
 
     """
-    logger.info("output channel : {} with value : {}".format(channel, value))
+    logger.info("output channel: {} with value: {}".format(channel, state[value]))
+    channel_config[channel].setValue(value)
+    
 
 def input(channel):
     """
     Input from a GPIO channel.  Returns HIGH=1=True or LOW=0=False
     channel - either board pin number or BCM number depending on which mode is set.
     """
-    logger.info("reading from chanel {}".format(channel))
+    value = channel_config[channel].getValue()
+    logger.info("reading from chanel {}: value {}".format(channel, state[value]))
+    
 
-def wait_for_edge(channel,edge,bouncetime,timeout):
+
+def wait_for_edge(channel,edge,bouncetime=0,timeout=0):
     """
     Wait for an edge.  Returns the channel number or None on timeout.
     channel      - either board pin number or BCM number depending on which mode is set.
     edge         - RISING, FALLING or BOTH
     [bouncetime] - time allowed between calls to allow for switchbounce
-    [timeout]    - timeout in ms
+    [timeout]    - timeout in ms. 
     """
-    logger.info("waiting for edge : {} on channel : {} with bounce time : {} and Timeout :{}".format(edge,channel,bouncetime,timeout))
+    logger.info("waiting for edge: {} on channel: {} with bounce time: {} and Timeout: {}".format(trans[edge],channel,bouncetime,timeout))
+    if timeout == 0:
+        logger.info("waiting for edge timed out on channel: {}".format(channel))
+        return None
+    
+    time.sleep(timeout/1000)
+    logger.info("edge detected on channel: {}".format(channel))
+    return channel
 
 
-def add_event_detect(channel,edge,callback,bouncetime):
+def add_event_detect(channel,edge,callback=None,bouncetime=0):
     """
     Enable edge detection events for a particular GPIO channel.
     channel      - either board pin number or BCM number depending on which mode is set.
@@ -142,7 +184,9 @@ def add_event_detect(channel,edge,callback,bouncetime):
     [callback]   - A callback function for the event (optional)
     [bouncetime] - Switch bounce timeout in ms for callback
     """
-    logger.info("Event detect added for edge : {} on channel : {} with bouce time : {} and callback {}".format(edge,channel,bouncetime,callback))
+    logger.info("Event detect added for edge: {} on channel: {} with bounce time: {} and callback {}".format(trans[edge],channel,bouncetime,callback))
+    channel_config[channel].enableEventDetection(callback)
+
 
 def event_detected(channel):
     """
@@ -150,6 +194,8 @@ def event_detected(channel):
     channel - either board pin number or BCM number depending on which mode is set.
     """
     logger.info("Waiting for even detection on channel :{}".format(channel))
+    return channel_config[channel].event_detected
+
 
 def add_event_callback(channel,callback):
     """
@@ -158,20 +204,22 @@ def add_event_callback(channel,callback):
     callback     - a callback function
     """
     logger.info("Event Calback : {} added for channel : {}".format(callback,channel))
+    channel_config[channel].setCallback(callback)
 
 def remove_event_detect(channel):
     """
     Remove edge detection for a particular GPIO channel
     channel - either board pin number or BCM number depending on which mode is set.
     """
-    logger.info("Event Detect Removed for channel : {}".format(channel))
+    logger.info("Event Detect Removed for channel: {}".format(channel))
+    channel_config[channel].disableEventDetection()
 
 def gpio_function(channel):
     """
     Return the current GPIO function (IN, OUT, PWM, SERIAL, I2C, SPI)
     channel - either board pin number or BCM number depending on which mode is set.
     """
-    logger.info("GPIO function of Channel : {} is {}".format(channel,channel_config[channel].direction))
+    logger.info("GPIO function of Channel : {} is {}".format(channel,trans[channel_config[channel].direction]))
 
 
 class PWM:
